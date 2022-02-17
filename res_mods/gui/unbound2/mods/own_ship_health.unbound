@@ -1,0 +1,160 @@
+(def constant SHIP_HP_TRANSFORM_ADJUSTED_COLORS {
+	MAX_HP_REGEN:   { redMultiplier:1,greenMultiplier:1,blueMultiplier:1,alphaMultiplier:1,redOffset:-160,greenOffset:-15,blueOffset:50,alphaOffset:-100 }
+})
+
+
+(def element OwnHealthBarRegen (_entityId:number = 0) layout=true
+	(scope
+		#Newly added to this scope
+		(var entityId:number = "_entityId")
+		(var consumablesCollection:gfx = "$datahub.getCollection(CC.battleConsumable)")
+		(var shipConsumablesCollection:gfx = "consumablesCollection.getChildByPath('shipConsumables')")
+		(var shipConsumablesCollectionByViewTypes:gfx = "shipConsumablesCollection ? shipConsumablesCollection.getChildByPath('byViewType').childrenArray : []")
+		(var shipConsumablesCollectionByViewTypesLength:gfx = "shipConsumablesCollectionByViewTypes.length")
+	)
+	
+	(style
+		(height = 100%)
+		(width = 100%)
+		(position = "absolute")
+	)
+		
+	(controller $Instance renderer='GetConsumeables'
+	 	(bind enabled "shipConsumablesCollectionByViewTypesLength > 0")
+	 	(args
+			_entityId = "entityId"
+	 	)
+	 	(exprs
+	 		(scope
+				(bind entityId "entityId")
+	 			(bind _children "shipConsumablesCollectionByViewTypes")
+	 		)
+		)
+	)
+)
+
+(def element GetConsumeables (_entityId:number = 0) layout=true
+	(scope
+		(var _children:array = "[]")
+		(var collection:gfx = "_children[0]" (event "_children.evUpdated"))
+		(var totalCount:number = "collection.items.length")
+		(var entityId:number = "_entityId")
+	)
+	
+	(style
+		(height = 100%)
+		(width = 100%)
+		(position = "absolute")
+	)
+		
+	(controller $Repeat renderer='GetMaxRegen'
+		(bind enabled "collection != null")
+		(bind count "totalCount" init=false (event "_collection.evAdded") (event "_collection.evRemoved"))
+		(args
+			_entityId = "entityId"
+			_col = "collection"
+		)
+		(exprs
+			(scope
+				(bind entityId "entityId")
+				(bind col "collection")
+			)
+		)
+	)	
+)
+
+(def element GetMaxRegen (_entityId:number, _col:gfx) layout=true
+	(scope
+		(var entityId:number = "_entityId")
+		(var col:gfx = "_col")
+		
+		(var itemsList:array = "col.items" (event "col.evUpdated"))
+		(var consumableEntity:gfx = "itemsList[$index]" (event "col.evUpdated"))
+		(var battleConsumable:gfx = "consumableEntity.battleConsumable")
+		(var consumableState:number = "battleConsumable.state" (event "battleConsumable.evStateChanged"))
+		(var atWork:bool = "consumableState == 1")
+		
+		(var consumeableType:number = "battleConsumable.type")
+		(var consumeableTime:number = "battleConsumable.workTime")
+		(var consumeableRegen:number = "battleConsumable.attributesPositive[0].numericValue")
+		(var maxRegen:number = "consumeableTime * consumeableRegen")
+		(var topValue:number = "30 * $index - 450")
+	)
+	
+	(style
+		(height = 100%)
+		(width = 100%)
+		(position = "absolute")
+	)
+		
+	(controller $Instance renderer='ShowOwnHealthBarRegen' layout=true
+		(bind enabled "consumeableType == 9")
+		(args
+			_entityId = "entityId"
+			_maxRegen = "maxRegen"
+			_atWork = "atWork"
+		)
+		(exprs
+			(scope
+				(bind entityId "entityId")
+				(bind atWork "atWork")
+			)
+		)
+	)
+)
+
+(def element ShowOwnHealthBarRegen(_entityId:number = 0, _maxRegen:number, _atWork:bool) layout=true
+	(scope
+		# Original Vars here
+		(var barImageWidth:number = "BAR_IMAGE_WIDTH")
+		(var entityId:number = "_entityId")
+		(var entity:gfx =  "$datahub.getEntity(entityId)")
+		
+		(var shipInfo:gfx = "$datahub.getEntity(entity.vehicleInfo.shipInfoEntityId)")
+		(var shortName:str = "shipInfo.ship.shortName")
+		
+		(var healthComponent:gfx = "entity.health")
+		(var maxHealth:number = "healthComponent.max" (event "healthComponent.evMaxChanged"))
+		(var shipBarConfigLeft:number = "shipInfo.shipBarConfig.left")
+		(var shipBarConfigRight:number = "shipInfo.shipBarConfig.right")
+		(var barVisibleWidth:number = "barImageWidth - shipBarConfigRight - shipBarConfigLeft")
+		
+		(var regenComponent:gfx = "entity.regeneration" (event "entity.evAdded"))
+		(var regenMaxValue:number = "regenComponent.maxValue" (event "regenComponent.evChanged"))
+		(var regenValue:number = "regenComponent.value" (event "regenComponent.evChanged"))
+		(var regenPercent:number = "regenMaxValue / maxHealth" (event "regenComponent.evChanged"))
+		
+		(var resultWidth:number = "ceil(barVisibleWidth * regenPercent + shipBarConfigLeft)")
+		(var currentWidth:number = "resultWidth" watch=false)
+		
+		(var healthValue:number = "healthComponent.value" (event "healthComponent.evValueChanged"))
+		(var maxRegen:number = "_maxRegen")
+		(var maxPosHp:number = 0)
+		(bind maxPosHp "healthValue + maxRegen" watch=true)
+		(var atWork:bool = "_atWork")
+		(var maxReached:bool = false)
+		(bind maxReached "atWork ? false : (maxPosHp <= regenMaxValue && !maxReached ? true : maxReached)" init=false)
+		
+		(controller $Animation
+	        (bindcall play  duration = "HEALTH_ANI_MIN"
+	                        action="killAll"
+	                        watch = false
+	                        easing="Easing.quad_in"
+	                        from = "{ currentWidth: currentWidth }"
+	                        to = "{ currentWidth: resultWidth }"
+	                        (event "regenComponent.evChanged")
+	        )
+	    )
+	)
+	
+	(style 
+		(bind width "currentWidth")
+		(height = "100%")
+		(position = "absolute")
+		(backgroundSize = "crop")
+		(bind backgroundImage "'url:../ship_bars/'  +  shortName  +  '_h.png'")
+	)
+		
+	(bind colorTransform "regenValue > 0 ? SHIP_HP_TRANSFORM_COLORS.POSITIVE_REGEN : (maxReached ? SHIP_HP_TRANSFORM_ADJUSTED_COLORS.MAX_HP_REGEN : SHIP_HP_TRANSFORM_COLORS.MAX_REGEN)")	
+
+)
